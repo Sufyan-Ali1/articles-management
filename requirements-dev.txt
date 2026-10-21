@@ -1,0 +1,13 @@
+-r requirements.txt
+ast-serialize==0.12.1
+iniconfig==2.3.0
+librt==0.16.0
+mypy==2.4.0
+mypy-extensions==1.1.0
+packaging==26.3
+pathspec==1.1.1
+pluggy==1.6.0
+pygments==2.21.0
+pytest==9.1.1
+pytest-asyncio==1.4.0
+ruff==0.16.10

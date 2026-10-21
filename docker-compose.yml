@@ -1,0 +1,93 @@
+name: blog-backend
+x-api-environment: &api-environment
+  ENVIRONMENT: ${ENVIRONMENT:-production}
+  JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+  JWT_ISSUER: ${JWT_ISSUER:-blog-api}
+  JWT_AUDIENCE: ${JWT_AUDIENCE:-blog-clients}
+  ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-30}
+  CORS_ORIGINS: ${CORS_ORIGINS:-[]}
+  TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-[]}
+  DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+  DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
+  DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-5}
+  DB_STATEMENT_TIMEOUT_MS: ${DB_STATEMENT_TIMEOUT_MS:-10000}
+  DB_LOCK_TIMEOUT_MS: ${DB_LOCK_TIMEOUT_MS:-3000}
+  REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-30}
+  MAX_BODY_BYTES: ${MAX_BODY_BYTES:-2097152}
+  LIMITER_MAX_KEYS: ${LIMITER_MAX_KEYS:-10000}
+  LOGIN_ACCOUNT_PER_MINUTE: ${LOGIN_ACCOUNT_PER_MINUTE:-5}
+  LOGIN_IP_PER_MINUTE: ${LOGIN_IP_PER_MINUTE:-30}
+  MUTATIONS_PER_MINUTE: ${MUTATIONS_PER_MINUTE:-60}
+  SUBMISSIONS_PER_TEN_MINUTES: ${SUBMISSIONS_PER_TEN_MINUTES:-5}
+  SUBMISSIONS_PER_DAY: ${SUBMISSIONS_PER_DAY:-20}
+  NEXTJS_REVALIDATION_ENABLED: ${NEXTJS_REVALIDATION_ENABLED:-false}
+  NEXTJS_REVALIDATION_URL: ${NEXTJS_REVALIDATION_URL:-}
+  NEXTJS_REVALIDATION_SECRET: ${NEXTJS_REVALIDATION_SECRET:-}
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: blog
+      POSTGRES_USER: blog_owner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:?Set DB_APP_PASSWORD}
+      DB_MIGRATION_PASSWORD: ${DB_MIGRATION_PASSWORD:?Set DB_MIGRATION_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init-db.sh:/docker-entrypoint-initdb.d/01-blog.sh:ro
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    shm_size: 256mb
+    mem_limit: 1g
+    cpus: 2
+    pids_limit: 256
+
+  migrate:
+    image: blog-backend:local
+    build:
+      context: .
+      target: production
+    environment:
+      <<: *api-environment
+      DATABASE_URL: postgresql+asyncpg://blog_migrator:${DB_MIGRATION_PASSWORD:?Set DB_MIGRATION_PASSWORD}@db:5432/blog
+    command: [alembic, upgrade, head]
+    depends_on:
+      db:
+        condition: service_healthy
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    pids_limit: 64
+
+  api:
+    image: blog-backend:local
+    build:
+      context: .
+      target: production
+    environment:
+      <<: *api-environment
+      DATABASE_URL: postgresql+asyncpg://blog_api:${DB_APP_PASSWORD:?Set DB_APP_PASSWORD}@db:5432/blog
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    stop_grace_period: 35s
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 768m
+    cpus: 2
+    pids_limit: 128
+
+volumes:
+  postgres_data:
