@@ -2,7 +2,38 @@
 
 FastAPI modular monolith for a Next.js blog and admin dashboard. Python 3.12+, PostgreSQL, async SQLAlchemy/asyncpg, JWT, Argon2id, Alembic, and nine application tables. Includes public topic suggestions, administrative reviews, transactional audit logging, and optional Next.js revalidation. No registration, refresh-token/session table, automatic generation, or automatic publication.
 
-## Quick start with Docker
+## Configured local database
+
+This workspace now has a running Docker PostgreSQL 17 database and API. The private `.env` contains generated credentials and configured application/test URLs; preserve it rather than overwriting it with the example.
+
+| Connection | Value |
+|---|---|
+| Database host / port | `127.0.0.1:5432` |
+| Project database | `blog` |
+| Application user | `blog_api` |
+| Application password | `DB_APP_PASSWORD` in `.env` |
+| Disposable test database | `blog_test` |
+| Migration/test user | `blog_migrator` |
+| API / Swagger | `http://localhost:8000` / `http://localhost:8000/docs` |
+| Persistent volume | `blog-backend_postgres_data` |
+
+Migration `0001` is applied to `blog`, and all seven article types are seeded. No administrator account is created automatically. Use `docker compose run --rm -it api python -m scripts.create_admin` to choose the first administrator credentials.
+
+Restart the configured local services with:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --no-build --wait api
+```
+
+Run all tests in Python 3.12 against the separate database (already created locally):
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.test.yml run --rm --build tests
+```
+
+Keep the development override when starting the local services so the loopback database port stays available to local Python and database clients. Stopping containers preserves data in the named volume; removing the volume deletes the database. A fresh volume needs `blog_test` created once with the `createdb` command in the testing section.
+
+## Quick start with Docker (fresh environment)
 
 1. Install a working Docker Engine/Desktop with Compose. Copy `.env.example` to `.env`.
 2. Generate **four independent values** using `openssl rand -hex 32`: set `POSTGRES_PASSWORD`, `DB_APP_PASSWORD`, `DB_MIGRATION_PASSWORD`, and `JWT_SECRET`. These URL-safe passwords work in Compose's database URLs. Never commit `.env`.
@@ -44,7 +75,7 @@ python -m scripts.serve
 
 Development Swagger UI: `/docs`; machine-readable schema: `/openapi.json`. The deployment entry point is `python -m scripts.serve`, or `uvicorn app.main:create_app --factory --workers 1` with equivalent resource/proxy settings. The pinned CA bundle and hash-verified pip bootstrap address the [October 2026 Python CA advisory](https://discuss.python.org/t/information-for-python-users-regarding-emudhra-emsign-ca-certificate-security-incident/109576). Rebuild images with fresh base/system certificates.
 
-The package manifest also supports `pip install -e '.[dev]'`; the requirements files pin the deployment dependency snapshot. The local partial verification used cached packages, as recorded in the report.
+The package manifest also supports `pip install -e '.[dev]'`; the requirements files pin the deployment dependency snapshot. The complete checks passed in Docker with Python 3.12.15 and PostgreSQL 17, as recorded in the report.
 
 ## API contract
 
@@ -151,7 +182,7 @@ docker compose run --rm migrate alembic upgrade head --sql
 
 For local commands, set `DATABASE_URL` to your actual `blog_migrator` connection, then run `alembic upgrade head` / `alembic check`. Keep application serving credentials separate. The initial revision `0001` creates nine tables and no existing data is modified. Its downgrade drops application data and is suitable only for disposable databases or a verified rollback procedure. Prefer forward corrective migrations for production.
 
-CI is configured for Python 3.12 and PostgreSQL 17, all checks/tests, destructive migration round-trips on its disposable database, and a production Docker build. CI configuration is provided; its successful execution is not assumed. Current local check results and blockers are recorded in `IMPLEMENTATION_REPORT.md`.
+CI is configured for Python 3.12 and PostgreSQL 17, all checks/tests, destructive migration round-trips on its disposable database, and a production Docker build. CI configuration is provided; its successful execution is not assumed. Current verification results are recorded in `IMPLEMENTATION_REPORT.md`.
 
 ## Secrets, backups, and restore
 
@@ -177,3 +208,7 @@ docker compose -p blog-restore exec -T db psql -U blog_owner -d blog -c 'SELECT 
 ```
 
 Check application table counts, representative article/relationship/audit records, login, and readiness against the restored environment before considering the exercise successful. Do not start a second API on the same published port as a live deployment. For production recovery, stop writers, preserve the damaged database for investigation, restore into a replacement database, verify schema/data/grants, switch application secrets/connection settings, and perform a controlled readiness/traffic cutover. Do not run destructive restore options against a live database as an unreviewed shortcut. Restore execution remains an operator/environment verification step.
+
+### Managed PostgreSQL URL compatibility
+
+The API and Alembic translate `sslmode` URL options for asyncpg. Modes `require`, `verify-ca`, and `verify-full` use a CA-verified TLS context with hostname verification and the bundled certifi trust store. Provider `channel_binding` parameters are removed because asyncpg does not support libpq channel-binding enforcement; a safe warning records this, and verified TLS is required when the parameter is present. This does not guarantee SCRAM channel binding. If your database policy mandates channel binding, use a supporting driver before deployment. Local URLs without TLS options remain unchanged. Keep the `postgresql+asyncpg://` URL prefix.

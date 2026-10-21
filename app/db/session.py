@@ -10,11 +10,13 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.core.config import Settings
+from app.db.connection import connection_options
 
 
 def create_database(settings: Settings) -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
+    url, tls_arguments = connection_options(settings.database_url)
     engine = create_async_engine(
-        settings.database_url,
+        url,
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
         pool_timeout=settings.db_pool_timeout,
@@ -22,6 +24,7 @@ def create_database(settings: Settings) -> tuple[AsyncEngine, async_sessionmaker
         pool_recycle=1800,
         hide_parameters=True,
         connect_args={
+            **tls_arguments,
             "timeout": 5,
             "command_timeout": 15,
             "server_settings": {

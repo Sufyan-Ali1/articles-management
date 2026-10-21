@@ -7,6 +7,7 @@ from alembic import context
 from app import models  # noqa: F401
 from app.core.config import get_settings
 from app.db.base import Base
+from app.db.connection import connection_options
 
 config = context.config
 metadata = Base.metadata
@@ -31,7 +32,8 @@ def migrate(connection: Connection) -> None:
 
 
 async def online() -> None:
-    engine = create_async_engine(get_settings().database_url, poolclass=pool.NullPool)
+    url, connect_args = connection_options(get_settings().database_url)
+    engine = create_async_engine(url, poolclass=pool.NullPool, connect_args=connect_args)
     async with engine.connect() as connection:
         await connection.run_sync(migrate)
     await engine.dispose()

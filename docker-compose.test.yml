@@ -1,0 +1,23 @@
+services:
+  tests:
+    image: blog-backend:test
+    build:
+      context: .
+      target: development
+    environment:
+      ENVIRONMENT: test
+      RUFF_CACHE_DIR: /tmp/ruff
+      MYPY_CACHE_DIR: /tmp/mypy
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      DATABASE_URL: postgresql+asyncpg://blog_migrator:${DB_MIGRATION_PASSWORD:?Set DB_MIGRATION_PASSWORD}@db:5432/blog_test
+      TEST_DATABASE_URL: postgresql+asyncpg://blog_migrator:${DB_MIGRATION_PASSWORD:?Set DB_MIGRATION_PASSWORD}@db:5432/blog_test
+    depends_on:
+      db:
+        condition: service_healthy
+    command: [pytest, -q, -p, "no:cacheprovider"]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 768m
+    pids_limit: 128
