@@ -156,3 +156,13 @@ class ArticleRequest(Timestamps, Base):
     reviewed_by: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), index=True
     )
+
+
+class MediaAsset(Base):
+    __tablename__ = "media_assets"
+    public_id: Mapped[str] = mapped_column(String(255), unique=True)
+    secure_url: Mapped[str | None] = mapped_column(Text, unique=True)
+    owner_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    unused_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    deletion_pending: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    deleted: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))

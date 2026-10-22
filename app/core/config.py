@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     mutations_per_minute: int = Field(default=60, ge=1)
     submissions_per_ten_minutes: int = Field(default=5, ge=1)
     submissions_per_day: int = Field(default=20, ge=1)
+    cloudinary_cloud_name: str | None = None
+    cloudinary_api_key: str | None = None
+    cloudinary_api_secret: SecretStr | None = None
+    cloudinary_max_image_bytes: int = Field(default=2097152, ge=1024, le=8388608)
+    media_cleanup_grace_hours: int = Field(default=24, ge=1)
     nextjs_revalidation_url: str | None = None
     nextjs_revalidation_secret: SecretStr | None = None
     nextjs_revalidation_enabled: bool = False

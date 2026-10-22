@@ -11,6 +11,7 @@ def test_application_tables() -> None:
     assert set(Base.metadata.tables) == {
         "users",
         "refresh_sessions",
+        "media_assets",
         "articles",
         "categories",
         "tags",

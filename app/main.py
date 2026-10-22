@@ -1,6 +1,7 @@
+import asyncio
 import secrets
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 import httpx
@@ -13,7 +14,7 @@ from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as DBPoolTimeout
 from starlette.exceptions import HTTPException
 
-from app.api.v1 import articles, auth, classifications, logs, requests, users
+from app.api.v1 import articles, auth, classifications, logs, media, requests, users
 from app.core.config import Settings, get_settings
 from app.core.errors import APIError
 from app.core.limits import RateLimiter
@@ -23,6 +24,7 @@ from app.core.security import hash_password
 from app.db.session import create_database
 from app.integrations.nextjs import Revalidator
 from app.schemas.common import Data, ErrorResponse
+from app.services.media import media_cleanup_worker
 from app.services.requests import SubmissionGuard
 
 
@@ -45,7 +47,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 trust_env=False,
             ) as client:
                 application.state.revalidator = Revalidator(config, client)
-                yield
+                cleanup_task = None
+                if (
+                    config.cloudinary_cloud_name
+                    and config.cloudinary_api_key
+                    and config.cloudinary_api_secret
+                ):
+                    cleanup_task = asyncio.create_task(media_cleanup_worker(factory, config))
+                try:
+                    yield
+                finally:
+                    if cleanup_task is not None:
+                        cleanup_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await cleanup_task
         finally:
             await engine.dispose()
 
@@ -131,6 +146,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         articles.router,
         requests.router,
         logs.router,
+        media.router,
     ):
         application.include_router(router, prefix="/api/v1")
 

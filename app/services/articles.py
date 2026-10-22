@@ -17,6 +17,7 @@ from app.repositories.queries import ARTICLE_LOAD, get_article
 from app.schemas.content import ArticleCreate, ArticleUpdate
 from app.services.classifications import CLASSIFICATION_LOCK
 from app.services.common import advisory_lock, audit, transaction
+from app.services.media import MEDIA_LOCK, image_urls, reconcile_media
 from app.services.users import ADMIN_LOCK
 from app.utils.validation import generated_slug, sanitize_html
 
@@ -46,7 +47,9 @@ async def references(
     )
     if len(rows) != len(ids) or (active and any(not row.is_active for row in rows)):
         raise APIError(
-            422, "invalid_reference", "One or more classifications are missing or inactive"
+            422,
+            "invalid_reference",
+            "One or more classifications are missing or inactive",
         )
     return rows
 
@@ -57,7 +60,9 @@ async def validate_published(session: AsyncSession, article: Article) -> None:
     await advisory_lock(session, CLASSIFICATION_LOCK)
     if not article.title.strip() or not article.article_type_id or not article.author_id:
         raise APIError(
-            422, "publication_invalid", "Publication requires title, article type and author"
+            422,
+            "publication_invalid",
+            "Publication requires title, article type and author",
         )
     author = await session.scalar(
         select(User).where(User.id == article.author_id).execution_options(populate_existing=True)
@@ -92,6 +97,7 @@ async def create_article(
     changes["slug"] = changes.get("slug") or generated_slug(data.title, 350)
     changes["content_html"] = await clean_content(data.content_html)
     async with transaction(session):
+        await advisory_lock(session, MEDIA_LOCK)
         await advisory_lock(session, CLASSIFICATION_LOCK)
         article = Article(author_id=actor.id, status="draft", categories=[], tags=[])
         await apply_relationships(session, article, changes)
@@ -100,6 +106,7 @@ async def create_article(
         session.add(article)
         await session.flush()
         audit(session, actor, "article.create", "article", article.id, ip)
+        await reconcile_media(session, image_urls(article))
         article = await get_article(session, article.id)
     return article
 
@@ -117,6 +124,7 @@ async def update_article(
     if "content_html" in changes:
         changes["content_html"] = await clean_content(changes["content_html"])
     async with transaction(session):
+        await advisory_lock(session, MEDIA_LOCK)
         article = await get_article(session, identity, lock=True)
         if actor.role == "author":
             if article.author_id != actor.id:
@@ -125,6 +133,7 @@ async def update_article(
                 raise forbidden()
             if "status" in changes or "is_featured" in changes:
                 raise forbidden()
+        old_images = image_urls(article)
         old_slug, was_public = article.slug, article.status == "published"
         old_status = article.status
         if was_public:
@@ -134,7 +143,9 @@ async def update_article(
             status = changes["status"]
             if status == "published" or (article.status == "published" and status == "draft"):
                 raise APIError(
-                    422, "dedicated_workflow_required", "Use the publish or unpublish endpoint"
+                    422,
+                    "dedicated_workflow_required",
+                    "Use the publish or unpublish endpoint",
                 )
         fields = sorted(changes)
         await apply_relationships(session, article, changes)
@@ -151,8 +162,13 @@ async def update_article(
                 "article",
                 article.id,
                 ip,
-                {"changed_fields": fields, "old_status": old_status, "new_status": article.status},
+                {
+                    "changed_fields": fields,
+                    "old_status": old_status,
+                    "new_status": article.status,
+                },
             )
+        await reconcile_media(session, old_images | image_urls(article))
         article = await get_article(session, identity)
     if fields and (was_public or article.status == "published"):
         await revalidator.notify("article.update", article.id, [old_slug, article.slug])
@@ -171,6 +187,7 @@ async def publish_article(
         raise forbidden()
     changed = False
     async with transaction(session):
+        await advisory_lock(session, MEDIA_LOCK)
         article = await get_article(session, identity, lock=True)
         target = "published" if publish else "draft"
         if article.status != target:
@@ -179,7 +196,9 @@ async def publish_article(
                 article.published_at = article.published_at or datetime.now(UTC)
             elif article.status != "published":
                 raise APIError(
-                    409, "invalid_transition", "Only a published article can be unpublished"
+                    409,
+                    "invalid_transition",
+                    "Only a published article can be unpublished",
                 )
             article.status = target
             await session.flush()
@@ -195,20 +214,30 @@ async def publish_article(
             changed = True
     if changed:
         await revalidator.notify(
-            "article.publish" if publish else "article.unpublish", article.id, [article.slug]
+            "article.publish" if publish else "article.unpublish",
+            article.id,
+            [article.slug],
         )
     return article
 
 
 async def delete_article(
-    session: AsyncSession, actor: User, identity: UUID, ip: str, revalidator: Revalidator
+    session: AsyncSession,
+    actor: User,
+    identity: UUID,
+    ip: str,
+    revalidator: Revalidator,
 ) -> None:
     require_roles(actor, "admin")
     async with transaction(session):
+        await advisory_lock(session, MEDIA_LOCK)
         article = await get_article(session, identity, lock=True)
         public, slug = article.status == "published", article.slug
         audit(session, actor, "article.delete", "article", identity, ip)
+        old_images = image_urls(article)
         await session.delete(article)
+        await session.flush()
+        await reconcile_media(session, old_images)
     if public:
         await revalidator.notify("article.delete", identity, [slug])
 
