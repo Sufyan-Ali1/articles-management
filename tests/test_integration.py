@@ -27,6 +27,7 @@ async def test_database_schema_and_seed(db_session: AsyncSession) -> None:
     )
     assert names - {"alembic_version"} == {
         "users",
+        "refresh_sessions",
         "articles",
         "categories",
         "tags",

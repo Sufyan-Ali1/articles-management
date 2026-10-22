@@ -68,9 +68,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.add_middleware(
         CORSMiddleware,
         allow_origins=config.cors_origins,
-        allow_credentials=False,
+        allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_headers=["Authorization", "Content-Type", "X-CSRF-Protection"],
         expose_headers=["X-Request-ID", "Retry-After"],
     )
 
@@ -108,7 +108,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return error_response(
             request,
             APIError(
-                exc.status_code, "http_error", "Request could not be processed", headers=exc.headers
+                exc.status_code,
+                "http_error",
+                "Request could not be processed",
+                headers=exc.headers,
             ),
         )
 
@@ -117,7 +120,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Do not log exception strings, SQL, parameters or connection details.
         status = 503 if isinstance(exc, (DBAPIError, DBPoolTimeout)) else 500
         return error_response(
-            request, APIError(status, "database_unavailable", "Database operation unavailable")
+            request,
+            APIError(status, "database_unavailable", "Database operation unavailable"),
         )
 
     for router in (

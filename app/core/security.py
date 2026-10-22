@@ -30,11 +30,12 @@ async def verify_password(encoded: str, password: str) -> bool:
     return await anyio.to_thread.run_sync(verify, limiter=blocking_limiter)
 
 
-def create_token(user_id: UUID, settings: Settings) -> str:
+def create_token(user_id: UUID, settings: Settings, session_id: UUID | None = None) -> str:
     now = datetime.now(UTC)
     return jwt.encode(
         {
             "sub": str(user_id),
+            **({"sid": str(session_id)} if session_id else {}),
             "iat": now,
             "exp": now + timedelta(minutes=settings.access_token_minutes),
             "iss": settings.jwt_issuer,

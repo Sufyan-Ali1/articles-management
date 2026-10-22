@@ -7,9 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.core.errors import APIError
 from app.core.limits import Limit, RateLimiter
-from app.core.security import create_token, verify_password
+from app.core.security import verify_password
 from app.models import User
-from app.schemas.users import Login, Token
+from app.schemas.users import Login
 from app.services.common import audit, transaction
 
 
@@ -20,7 +20,7 @@ async def login(
     limiter: RateLimiter,
     dummy_hash: str,
     ip: str,
-) -> Token:
+) -> User:
     key = hashlib.sha256(data.email.encode()).hexdigest()
     await limiter.check(
         Limit(f"login:{ip}:{key}", settings.login_account_per_minute, 60),
@@ -39,6 +39,4 @@ async def login(
         )
     async with transaction(session):
         audit(session, user, "auth.login", "user", user.id, ip)
-    return Token(
-        access_token=create_token(user.id, settings), expires_in=settings.access_token_minutes * 60
-    )
+    return user

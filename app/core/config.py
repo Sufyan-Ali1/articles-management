@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     jwt_issuer: str = "blog-api"
     jwt_audience: str = "blog-clients"
     access_token_minutes: int = Field(default=30, ge=1, le=120)
+    refresh_session_days: int = Field(default=7, ge=1, le=90)
+    refresh_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
     cors_origins: list[str] = []
     trusted_proxy_ips: list[str] = []
     db_pool_size: int = Field(default=10, ge=1, le=50)

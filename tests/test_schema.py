@@ -7,9 +7,10 @@ from app.repositories.queries import article_query
 from app.schemas.common import PublicArticleFilters
 
 
-def test_exactly_nine_application_tables() -> None:
+def test_application_tables() -> None:
     assert set(Base.metadata.tables) == {
         "users",
+        "refresh_sessions",
         "articles",
         "categories",
         "tags",

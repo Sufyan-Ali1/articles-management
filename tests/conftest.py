@@ -103,7 +103,9 @@ async def db_app(db_settings: Settings) -> AsyncIterator[FastAPI]:
 @pytest.fixture
 async def db_client(db_app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=db_app), base_url="http://test"
+        transport=httpx.ASGITransport(app=db_app),
+        base_url="http://test",
+        headers={"X-CSRF-Protection": "1"},
     ) as result:
         yield result
 

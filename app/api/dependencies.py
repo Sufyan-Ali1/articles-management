@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -10,7 +11,8 @@ from app.core.limits import Limit
 from app.core.rbac import require_roles
 from app.core.security import decode_token
 from app.db.session import get_session
-from app.models import User
+from app.models import RefreshSession, User
+from app.services.sessions import fingerprint
 
 Session = Annotated[AsyncSession, Depends(get_session)]
 bearer = HTTPBearer(auto_error=False)
@@ -23,11 +25,27 @@ async def current_user(
 ) -> User:
     if credentials is None:
         raise APIError(
-            401, "unauthorized", "Authentication required", headers={"WWW-Authenticate": "Bearer"}
+            401,
+            "unauthorized",
+            "Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     payload = decode_token(credentials.credentials, request.app.state.settings)
     user = await session.get(User, UUID(payload["sub"]))
-    if user is None or not user.is_active:
+    valid_session = True
+    if "sid" in payload:
+        try:
+            record = await session.get(RefreshSession, UUID(payload["sid"]))
+        except (ValueError, TypeError):
+            record = None
+        valid_session = bool(
+            record
+            and user
+            and record.user_id == user.id
+            and record.expires_at > datetime.now(UTC)
+            and record.password_fingerprint == fingerprint(user.password_hash)
+        )
+    if user is None or not user.is_active or not valid_session:
         raise APIError(
             401,
             "unauthorized",
@@ -36,7 +54,11 @@ async def current_user(
         )
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         await request.app.state.limiter.check(
-            Limit(f"mutation:{user.id}", request.app.state.settings.mutations_per_minute, 60)
+            Limit(
+                f"mutation:{user.id}",
+                request.app.state.settings.mutations_per_minute,
+                60,
+            )
         )
     return user
 

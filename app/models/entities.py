@@ -32,6 +32,14 @@ class User(Timestamps, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
 
 
+class RefreshSession(Base):
+    __tablename__ = "refresh_sessions"
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    password_fingerprint: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class Classification(Timestamps):
     name: Mapped[str] = mapped_column(String(150))
     slug: Mapped[str] = mapped_column(String(180), unique=True)
@@ -61,7 +69,11 @@ article_categories = Table(
     "article_categories",
     Base.metadata,
     Column("article_id", ForeignKey("articles.id", ondelete="CASCADE"), primary_key=True),
-    Column("category_id", ForeignKey("categories.id", ondelete="RESTRICT"), primary_key=True),
+    Column(
+        "category_id",
+        ForeignKey("categories.id", ondelete="RESTRICT"),
+        primary_key=True,
+    ),
     Index("ix_article_categories_category_id", "category_id"),
 )
 article_tags = Table(

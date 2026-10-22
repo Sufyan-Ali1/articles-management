@@ -1,6 +1,6 @@
 # Blog backend
 
-FastAPI modular monolith for a Next.js blog and admin dashboard. Python 3.12+, PostgreSQL, async SQLAlchemy/asyncpg, JWT, Argon2id, Alembic, and nine application tables. Includes public topic suggestions, administrative reviews, transactional audit logging, and optional Next.js revalidation. No registration, refresh-token/session table, automatic generation, or automatic publication.
+FastAPI modular monolith for a Next.js blog and admin dashboard. Python 3.12+, PostgreSQL, async SQLAlchemy/asyncpg, JWT, Argon2id, Alembic, and ten application tables. Includes public topic suggestions, administrative reviews, transactional audit logging, and optional Next.js revalidation. Includes persistent refresh sessions. No registration, automatic generation, or automatic publication.
 
 ## Configured local database
 
@@ -133,7 +133,7 @@ Limits use atomic operations under an asyncio lock, monotonic time, bounded queu
 
 Cancellation rolls back open transactions and releases sessions. A client disconnect/timeout after a commit cannot undo that commit; inspect resource state before retrying a timed-out mutation. There is no general idempotency-key or durable background-job system.
 
-Terminate HTTPS at a trusted proxy, enforce header/body/connection limits and a finite upstream timeout there, and enable HSTS for your production domain. Configure `TRUSTED_PROXY_IPS` explicitly so spoofed forwarding headers cannot bypass limits. Bearer authentication uses no cookies. Protect tokens on the Next.js side; there is no refresh endpoint or persistent token revocation store. User deactivation/role changes are checked on each authenticated request.
+Terminate HTTPS at a trusted proxy, enforce header/body/connection limits and a finite upstream timeout there, and enable HSTS for your production domain. Configure `TRUSTED_PROXY_IPS` explicitly so spoofed forwarding headers cannot bypass limits. Access tokens use Bearer authentication; refresh credentials use an HttpOnly cookie. See [session setup](docs/SESSIONS.md) for browser integration and deployment. User deactivation/role changes are checked on each authenticated request.
 
 ## Next.js revalidation
 
@@ -170,7 +170,7 @@ ruff format --check .
 mypy app
 ```
 
-Use the development Compose override for local PostgreSQL access. The test fixture upgrades Alembic, checks metadata drift, and truncates the nine application tables between tests. **Never point tests at production or valuable data.** An absent `TEST_DATABASE_URL` skips integration tests; a configured but unreachable server fails. Sanitization tests explicitly skip if nh3 is missing; normal installation and CI require nh3. Skipped tests do not establish production readiness.
+Use the development Compose override for local PostgreSQL access. The test fixture upgrades Alembic, checks metadata drift, and truncates application tables (including refresh sessions through cascading user deletion) between tests. **Never point tests at production or valuable data.** An absent `TEST_DATABASE_URL` skips integration tests; a configured but unreachable server fails. Sanitization tests explicitly skip if nh3 is missing; normal installation and CI require nh3. Skipped tests do not establish production readiness.
 
 Migration commands use the **migration role**, not the API role. For Compose:
 
@@ -212,3 +212,7 @@ Check application table counts, representative article/relationship/audit record
 ### Managed PostgreSQL URL compatibility
 
 The API and Alembic translate `sslmode` URL options for asyncpg. Modes `require`, `verify-ca`, and `verify-full` use a CA-verified TLS context with hostname verification and the bundled certifi trust store. Provider `channel_binding` parameters are removed because asyncpg does not support libpq channel-binding enforcement; a safe warning records this, and verified TLS is required when the parameter is present. This does not guarantee SCRAM channel binding. If your database policy mandates channel binding, use a supporting driver before deployment. Local URLs without TLS options remain unchanged. Keep the `postgresql+asyncpg://` URL prefix.
+
+## Persistent login
+
+Apply migration `0002_refresh_sessions` with `alembic upgrade head` before deploying the updated API. See [session setup](docs/SESSIONS.md). Login, refresh, and logout now require `X-CSRF-Protection: 1`; browser clients must use `credentials: "include"` on these requests.
