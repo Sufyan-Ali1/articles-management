@@ -88,8 +88,13 @@ article_tags = Table(
 class Article(Timestamps, Base):
     __tablename__ = "articles"
     __table_args__ = (
-        CheckConstraint("status IN ('draft','published','archived')", name="status"),
+        CheckConstraint("status IN ('draft','published','archived','scheduled')", name="status"),
         CheckConstraint("view_count >= 0", name="view_count"),
+        CheckConstraint(
+            "(status = 'scheduled') = (scheduled_publish_at IS NOT NULL)",
+            name="schedule_time",
+        ),
+        Index("ix_articles_status_scheduled_publish_at", "status", "scheduled_publish_at"),
         CheckConstraint(
             "status <> 'published' OR published_at IS NOT NULL", name="publication_time"
         ),
@@ -119,6 +124,7 @@ class Article(Timestamps, Base):
     is_featured: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     view_count: Mapped[int] = mapped_column(BigInteger, server_default="0")
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scheduled_publish_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     categories: Mapped[list[Category]] = relationship(secondary=article_categories, lazy="raise")
     tags: Mapped[list[Tag]] = relationship(secondary=article_tags, lazy="raise")
     article_type: Mapped[ArticleType | None] = relationship(lazy="raise")
@@ -166,3 +172,76 @@ class MediaAsset(Base):
     unused_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     deletion_pending: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     deleted: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+
+
+class Subscriber(Base):
+    __tablename__ = "subscribers"
+    email: Mapped[str] = mapped_column(String(255), unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
+class ContactMessage(Base):
+    __tablename__ = "contact_messages"
+    __table_args__ = (
+        CheckConstraint("reason IN ('general','correction','privacy')", name="reason"),
+    )
+    name: Mapped[str | None] = mapped_column(String(150))
+    email: Mapped[str] = mapped_column(String(255))
+    reason: Mapped[str] = mapped_column(String(30))
+    article_url: Mapped[str | None] = mapped_column(String(2048))
+    message: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
+class TrackingLink(Base):
+    __tablename__ = "tracking_links"
+    article_id: Mapped[UUID] = mapped_column(
+        ForeignKey("articles.id", ondelete="CASCADE"), index=True
+    )
+    source_id: Mapped[UUID] = mapped_column(
+        ForeignKey("traffic_sources.id", ondelete="RESTRICT"), index=True
+    )
+    code: Mapped[str] = mapped_column(String(80), unique=True)
+    source: Mapped[str] = mapped_column(String(100))
+    medium: Mapped[str] = mapped_column(String(100))
+    campaign: Mapped[str | None] = mapped_column(String(150))
+    content: Mapped[str | None] = mapped_column(String(150))
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ArticleViewEvent(Base):
+    __tablename__ = "article_view_events"
+    __table_args__ = (
+        Index("ix_article_view_events_article_created", "article_id", "created_at"),
+        Index("ix_article_view_events_source_created", "source", "created_at"),
+    )
+    event_id: Mapped[UUID] = mapped_column(unique=True)
+    session_id: Mapped[UUID] = mapped_column(index=True)
+    article_id: Mapped[UUID] = mapped_column(ForeignKey("articles.id", ondelete="CASCADE"))
+    tracking_link_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("tracking_links.id", ondelete="SET NULL"), index=True
+    )
+    source_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("traffic_sources.id", ondelete="RESTRICT"), index=True
+    )
+    source: Mapped[str] = mapped_column(String(253))
+    medium: Mapped[str] = mapped_column(String(100))
+    campaign: Mapped[str | None] = mapped_column(String(150))
+    content: Mapped[str | None] = mapped_column(String(150))
+    referrer_domain: Mapped[str | None] = mapped_column(String(253))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
+class TrafficSource(Timestamps, Base):
+    __tablename__ = "traffic_sources"
+    name: Mapped[str] = mapped_column(String(100))
+    slug: Mapped[str] = mapped_column(String(100), unique=True)
+    referrer_domains: Mapped[list[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))

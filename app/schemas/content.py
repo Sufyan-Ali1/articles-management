@@ -1,8 +1,8 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AwareDatetime, Field, field_validator, model_validator
 
 from app.schemas.common import ArticleStatus, Input, Output
 from app.schemas.users import AuthorResponse
@@ -132,6 +132,17 @@ class ArticleUpdate(ArticleFields):
         return self
 
 
+class ArticleSchedule(Input):
+    scheduled_publish_at: AwareDatetime
+
+    @field_validator("scheduled_publish_at")
+    @classmethod
+    def future_time(cls, value: datetime) -> datetime:
+        if value <= datetime.now(UTC):
+            raise ValueError("Scheduled publication must be in the future")
+        return value.astimezone(UTC)
+
+
 class ArticleSummary(Output):
     id: UUID
     title: str
@@ -163,9 +174,11 @@ class AdminArticleSummary(ArticleSummary):
     author_id: UUID | None
     article_type_id: UUID | None
     status: ArticleStatus
+    scheduled_publish_at: datetime | None
 
 
 class AdminArticleResponse(ArticleResponse):
     author_id: UUID | None
     article_type_id: UUID | None
     status: ArticleStatus
+    scheduled_publish_at: datetime | None

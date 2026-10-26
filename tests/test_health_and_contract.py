@@ -20,7 +20,9 @@ async def test_openapi(client: httpx.AsyncClient) -> None:
     assert document["components"]["securitySchemes"]["HTTPBearer"]["scheme"] == "bearer"
     public = document["paths"]["/api/v1/articles"]["get"]
     assert "status" not in [p["name"] for p in public["parameters"]]
-    assert "security" not in document["paths"]["/api/v1/article-requests"]["post"]
+    assert document["paths"]["/api/v1/article-requests"]["post"]["security"] == [
+        {"APIUser": [], "APIKey": []}
+    ]
     assert document["paths"]["/api/v1/admin/article-requests"]["get"]["security"]
 
 

@@ -216,3 +216,10 @@ The API and Alembic translate `sslmode` URL options for asyncpg. Modes `require`
 ## Persistent login
 
 Apply migration `0002_refresh_sessions` with `alembic upgrade head` before deploying the updated API. See [session setup](docs/SESSIONS.md). Login, refresh, and logout now require `X-CSRF-Protection: 1`; browser clients must use `credentials: "include"` on these requests.
+
+Scheduled publishing: see [API and worker configuration](docs/SCHEDULED_PUBLISHING.md).
+Subscriber storage: see [subscription API](docs/SUBSCRIPTIONS.md).
+Contact form storage: see [contact message API and frontend integration](docs/CONTACT_MESSAGES.md).
+Traffic attribution: see [tracking links, reports, and deployment setup](docs/TRAFFIC_TRACKING.md).
+
+Public data API authentication: see [API_USER/API_KEY setup and route scope](docs/PUBLIC_API_ACCESS.md). The website uses a server-only gateway; staff/admin authentication remains bearer-based.

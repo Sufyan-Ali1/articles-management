@@ -10,6 +10,11 @@ from app.schemas.common import PublicArticleFilters
 def test_application_tables() -> None:
     assert set(Base.metadata.tables) == {
         "users",
+        "tracking_links",
+        "traffic_sources",
+        "article_view_events",
+        "subscribers",
+        "contact_messages",
         "refresh_sessions",
         "media_assets",
         "articles",

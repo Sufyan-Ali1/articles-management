@@ -3,7 +3,7 @@ from ipaddress import ip_network
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +12,8 @@ class Settings(BaseSettings):
 
     environment: Literal["development", "test", "production"] = "development"
     database_url: str
+    api_user: SecretStr | None = None
+    api_key: SecretStr | None = None
     jwt_secret: SecretStr
     jwt_issuer: str = "blog-api"
     jwt_audience: str = "blog-clients"
@@ -41,9 +43,36 @@ class Settings(BaseSettings):
     nextjs_revalidation_url: str | None = None
     nextjs_revalidation_secret: SecretStr | None = None
     nextjs_revalidation_enabled: bool = False
+    analytics_ingest_secret: SecretStr | None = None
+    article_scheduler_enabled: bool = True
+    article_scheduler_interval_seconds: float = Field(default=30, ge=1, le=3600)
+
+    @field_validator("analytics_ingest_secret", "api_user", "api_key", mode="before")
+    @classmethod
+    def empty_analytics_secret(cls, value: str | SecretStr | None) -> str | SecretStr | None:
+        return None if value == "" else value
 
     @model_validator(mode="after")
     def secure_settings(self) -> "Settings":
+        if bool(self.api_user) != bool(self.api_key):
+            raise ValueError("API_USER and API_KEY must be configured together")
+        if self.api_user and (
+            len(self.api_user.get_secret_value()) > 100
+            or not self.api_user.get_secret_value().isascii()
+            or any(ord(c) < 33 for c in self.api_user.get_secret_value())
+        ):
+            raise ValueError("API_USER must use 1-100 visible ASCII characters")
+        if self.api_key and (
+            not 32 <= len(self.api_key.get_secret_value()) <= 512
+            or not self.api_key.get_secret_value().isascii()
+            or any(ord(c) < 33 for c in self.api_key.get_secret_value())
+        ):
+            raise ValueError("API_KEY must use 32-512 visible ASCII characters")
+        if (
+            self.analytics_ingest_secret
+            and len(self.analytics_ingest_secret.get_secret_value()) < 32
+        ):
+            raise ValueError("ANALYTICS_INGEST_SECRET must contain at least 32 characters")
         if len(self.jwt_secret.get_secret_value()) < 32:
             raise ValueError("JWT_SECRET must contain at least 32 characters")
         if not self.database_url.startswith("postgresql+asyncpg://"):

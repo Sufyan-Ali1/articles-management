@@ -21,11 +21,16 @@ from app.models import ArticleType, User
 from scripts.seed_types import seed
 
 PASSWORD = "integration-test-only-passphrase"
+API_USER = "test-website"
+API_KEY = "test-only-api-key-over-32-characters-long"
+API_HEADERS = {"X-API-User": API_USER, "X-API-Key": API_KEY}
 
 
 @pytest.fixture
 def settings() -> Settings:
     return Settings(
+        api_user=API_USER,
+        api_key=API_KEY,
         environment="test",
         database_url="postgresql+asyncpg://127.0.0.1:59999/unavailable_test",
         jwt_secret=secrets.token_urlsafe(48),
@@ -42,7 +47,7 @@ async def application(settings: Settings) -> AsyncIterator[FastAPI]:
 @pytest.fixture
 async def client(application: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=application), base_url="http://test"
+        transport=httpx.ASGITransport(app=application), base_url="http://test", headers=API_HEADERS
     ) as result:
         yield result
 
@@ -76,6 +81,8 @@ def migrated_database() -> Iterator[str]:
 @pytest.fixture
 async def db_settings(migrated_database: str) -> Settings:
     return Settings(
+        api_user=API_USER,
+        api_key=API_KEY,
         environment="test",
         database_url=migrated_database,
         jwt_secret=secrets.token_urlsafe(48),
@@ -90,7 +97,7 @@ async def db_app(db_settings: Settings) -> AsyncIterator[FastAPI]:
     async with factory() as session:
         await session.execute(
             text(
-                "TRUNCATE article_requests, admin_logs, article_tags, article_categories, articles, categories, tags, article_types, users CASCADE"
+                "TRUNCATE article_view_events, tracking_links, traffic_sources, contact_messages, subscribers, article_requests, admin_logs, article_tags, article_categories, articles, categories, tags, article_types, users CASCADE"
             )
         )
         await session.commit()
@@ -105,7 +112,7 @@ async def db_client(db_app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=db_app),
         base_url="http://test",
-        headers={"X-CSRF-Protection": "1"},
+        headers={"X-CSRF-Protection": "1", **API_HEADERS},
     ) as result:
         yield result
 

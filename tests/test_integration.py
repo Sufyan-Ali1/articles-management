@@ -244,7 +244,7 @@ async def test_article_workflow(
     ).status_code == 403
     response = await db_client.get(f"/api/v1/articles/{slug}")
     assert response.status_code == 200
-    assert response.json()["data"]["view_count"] == 1
+    assert response.json()["data"]["view_count"] == 0
     assert "email" not in response.json()["data"]["author"]
     response = await db_client.patch(
         f"/api/v1/articles/{identity}",
@@ -368,7 +368,7 @@ async def test_inactive_classifications_block_publication(
     assert response.status_code == 422
 
 
-async def test_concurrent_views(
+async def test_content_fetches_do_not_count_views(
     db_client: httpx.AsyncClient, accounts: dict[str, Any], draft: dict[str, Any]
 ) -> None:
     await db_client.post(
@@ -381,7 +381,7 @@ async def test_concurrent_views(
     response = await db_client.get(
         f"/api/v1/admin/articles/{draft['id']}", headers=accounts["editor"]["headers"]
     )
-    assert response.json()["data"]["view_count"] == 12
+    assert response.json()["data"]["view_count"] == 0
 
 
 async def test_submission_review_and_audit(

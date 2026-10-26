@@ -7,12 +7,16 @@ import anyio
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core.api_consumer import valid_api_consumer
 from app.core.config import Settings
 from app.core.errors import APIError
 from app.core.limits import Limit, RateLimiter
 
 
 def client_ip(scope: Scope) -> str:
+    forwarded = scope.get("state", {}).get("verified_visitor_ip")
+    if isinstance(forwarded, str):
+        return forwarded
     client = scope.get("client")
     raw = client[0] if client else "127.0.0.1"
     try:
@@ -47,22 +51,57 @@ class RequestProtection:
                         (b"referrer-policy", b"strict-origin-when-cross-origin"),
                     ]
                 )
-                if scope["path"].startswith(
-                    ("/api/v1/admin", "/api/v1/auth", "/api/v1/users")
-                ) or scope["method"] not in {"GET", "HEAD", "OPTIONS"}:
+                credentialed = any(
+                    name.lower() in {b"authorization", b"cookie", b"x-api-user", b"x-api-key"}
+                    for name, _ in scope.get("headers", [])
+                )
+                if (
+                    credentialed
+                    or scope["path"].startswith(("/api/v1/admin", "/api/v1/auth", "/api/v1/users"))
+                    or scope["method"] not in {"GET", "HEAD", "OPTIONS"}
+                ):
+                    # Authenticated taxonomy reads share public route paths.
+                    # Override any route cache policy instead of adding a duplicate.
+                    message["headers"] = [
+                        (name, value)
+                        for name, value in message["headers"]
+                        if name.lower() != b"cache-control"
+                    ]
                     message["headers"].append((b"cache-control", b"no-store"))
             await send(message)
 
         try:
             with anyio.fail_after(self.settings.request_timeout_seconds):
-                if (
-                    scope["method"] == "POST"
-                    and scope["path"].rstrip("/") == "/api/v1/article-requests"
-                ):
+                if scope["method"] == "POST" and scope["path"].rstrip("/") in {
+                    "/api/v1/article-requests",
+                    "/api/v1/subscriptions",
+                    "/api/v1/contact-messages",
+                }:
+                    headers = {
+                        name.lower(): value.decode("latin-1")
+                        for name, value in scope.get("headers", [])
+                    }
+                    if valid_api_consumer(
+                        self.settings, headers.get(b"x-api-user"), headers.get(b"x-api-key")
+                    ):
+                        try:
+                            scope["state"]["verified_visitor_ip"] = str(
+                                ipaddress.ip_address(headers.get(b"x-visitor-ip", ""))
+                            )
+                        except ValueError:
+                            pass
                     ip = client_ip(scope)
                     await self.limiter.check(
-                        Limit(f"submit:{ip}", self.settings.submissions_per_ten_minutes, 600),
-                        Limit(f"submit:{ip}", self.settings.submissions_per_day, 86400),
+                        Limit(
+                            f"submit:{scope['path'].rstrip('/')}:{ip}",
+                            self.settings.submissions_per_ten_minutes,
+                            600,
+                        ),
+                        Limit(
+                            f"submit:{scope['path'].rstrip('/')}:{ip}",
+                            self.settings.submissions_per_day,
+                            86400,
+                        ),
                     )
                 if scope["method"] == "POST" and scope["path"].rstrip("/") == "/api/v1/auth/login":
                     await self.limiter.check(

@@ -96,6 +96,7 @@ def article_query(
             Article.is_featured,
             Article.view_count,
             Article.published_at,
+            Article.scheduled_publish_at,
             Article.created_at,
             Article.updated_at,
             raiseload=True,

@@ -1,10 +1,10 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import select
 
-from app.api.dependencies import Admin, Reviewer, Session
+from app.api.dependencies import Admin, Reviewer, Session, public_api_access
 from app.core.middleware import client_ip
 from app.models import ArticleRequest
 from app.repositories.queries import get_record, list_records
@@ -20,7 +20,12 @@ class RequestFilters(Pagination):
     status: RequestStatus | None = None
 
 
-@router.post("/article-requests", status_code=202, response_model=Data[SubmissionResponse])
+@router.post(
+    "/article-requests",
+    dependencies=[Depends(public_api_access)],
+    status_code=202,
+    response_model=Data[SubmissionResponse],
+)
 async def submit(
     data: RequestCreate, request: Request, session: Session
 ) -> Data[SubmissionResponse]:

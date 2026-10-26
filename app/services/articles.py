@@ -5,7 +5,7 @@ from typing import Any, TypeVar
 from uuid import UUID
 
 import anyio
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import APIError, forbidden, not_found
@@ -136,22 +136,26 @@ async def update_article(
         old_images = image_urls(article)
         old_slug, was_public = article.slug, article.status == "published"
         old_status = article.status
-        if was_public:
+        if was_public or article.status == "scheduled":
             await advisory_lock(session, ADMIN_LOCK)
         await advisory_lock(session, CLASSIFICATION_LOCK)
         if "status" in changes:
             status = changes["status"]
-            if status == "published" or (article.status == "published" and status == "draft"):
+            if status in {"published", "scheduled"} or (
+                article.status == "published" and status == "draft"
+            ):
                 raise APIError(
                     422,
                     "dedicated_workflow_required",
-                    "Use the publish or unpublish endpoint",
+                    "Use the publish, unpublish or schedule endpoint",
                 )
         fields = sorted(changes)
         await apply_relationships(session, article, changes)
         for key, value in changes.items():
             setattr(article, key, value)
-        if article.status == "published":
+        if article.status != "scheduled":
+            article.scheduled_publish_at = None
+        if article.status in {"published", "scheduled"}:
             await validate_published(session, article)
         await session.flush()
         if fields:
@@ -200,6 +204,7 @@ async def publish_article(
                     "invalid_transition",
                     "Only a published article can be unpublished",
                 )
+            article.scheduled_publish_at = None
             article.status = target
             await session.flush()
             audit(
@@ -243,18 +248,11 @@ async def delete_article(
 
 
 async def public_detail(session: AsyncSession, slug: str) -> Article:
-    async with transaction(session):
-        # UPDATE locks/rechecks status atomically, so an unpublished article cannot be counted/returned.
-        identity = await session.scalar(
-            update(Article)
-            .where(Article.slug == slug, Article.status == "published")
-            .values(view_count=Article.view_count + 1, updated_at=Article.updated_at)
-            .returning(Article.id)
-        )
-        if identity is None:
-            raise not_found()
-        article = await session.scalar(
-            select(Article).where(Article.id == identity).options(*ARTICLE_LOAD)
-        )
-        assert article is not None
+    article = await session.scalar(
+        select(Article)
+        .where(Article.slug == slug, Article.status == "published")
+        .options(*ARTICLE_LOAD)
+    )
+    if article is None:
+        raise not_found()
     return article

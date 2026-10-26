@@ -1,10 +1,16 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import select
 
-from app.api.dependencies import Admin, OptionalActor, Session, classification_access
+from app.api.dependencies import (
+    Admin,
+    OptionalActor,
+    Session,
+    classification_access,
+    public_or_staff_access,
+)
 from app.core.errors import not_found
 from app.core.middleware import client_ip
 from app.models import ArticleType, Category, Tag
@@ -35,7 +41,7 @@ category_router = APIRouter(prefix="/categories", tags=["Categories"])
 
 
 @category_router.get(
-    "", response_model=Page[CategoryResponse], openapi_extra={"security": [{}, {"HTTPBearer": []}]}
+    "", response_model=Page[CategoryResponse], dependencies=[Depends(public_or_staff_access)]
 )
 async def categories(
     session: Session, actor: OptionalActor, params: Annotated[ClassificationFilters, Query()]
@@ -51,7 +57,7 @@ async def categories(
 @category_router.get(
     "/{slug}",
     response_model=Data[CategoryResponse],
-    openapi_extra={"security": [{}, {"HTTPBearer": []}]},
+    dependencies=[Depends(public_or_staff_access)],
 )
 async def category_detail(
     slug: str, session: Session, actor: OptionalActor, include_inactive: bool = False
@@ -101,7 +107,7 @@ def simple_router(model: type[Tag] | type[ArticleType], prefix: str) -> APIRoute
         "",
         response_model=Page[ClassificationResponse],
         name=f"list_{model.__tablename__}",
-        openapi_extra={"security": [{}, {"HTTPBearer": []}]},
+        dependencies=[Depends(public_or_staff_access)],
     )
     async def listing(
         session: Session, actor: OptionalActor, params: Annotated[ClassificationFilters, Query()]
@@ -119,7 +125,7 @@ def simple_router(model: type[Tag] | type[ArticleType], prefix: str) -> APIRoute
         "/{slug}",
         response_model=Data[ClassificationResponse],
         name=f"get_{model.__tablename__}",
-        openapi_extra={"security": [{}, {"HTTPBearer": []}]},
+        dependencies=[Depends(public_or_staff_access)],
     )
     async def detail(
         slug: str, session: Session, actor: OptionalActor, include_inactive: bool = False

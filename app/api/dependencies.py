@@ -3,7 +3,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import APIError
@@ -103,3 +103,47 @@ def classification_access(include_inactive: bool, actor: User | None) -> None:
                 headers={"WWW-Authenticate": "Bearer"},
             )
         require_roles(actor, "admin")
+
+
+async def public_api_access(
+    request: Request,
+    api_user: Annotated[
+        str | None,
+        Depends(APIKeyHeader(name="X-API-User", scheme_name="APIUser", auto_error=False)),
+    ],
+    api_key: Annotated[
+        str | None, Depends(APIKeyHeader(name="X-API-Key", scheme_name="APIKey", auto_error=False))
+    ],
+) -> None:
+    from app.core.api_consumer import valid_api_consumer
+
+    settings = request.app.state.settings
+    if not settings.api_user or not settings.api_key:
+        raise APIError(
+            503,
+            "api_access_unconfigured",
+            "API access is not configured",
+            headers={"Cache-Control": "no-store"},
+        )
+    if not valid_api_consumer(settings, api_user, api_key):
+        raise APIError(
+            401,
+            "api_access_denied",
+            "Valid API credentials are required",
+            headers={"Cache-Control": "no-store"},
+        )
+
+
+async def public_or_staff_access(
+    request: Request,
+    actor: OptionalActor,
+    api_user: Annotated[
+        str | None,
+        Depends(APIKeyHeader(name="X-API-User", scheme_name="APIUser", auto_error=False)),
+    ],
+    api_key: Annotated[
+        str | None, Depends(APIKeyHeader(name="X-API-Key", scheme_name="APIKey", auto_error=False))
+    ],
+) -> None:
+    if actor is None:
+        await public_api_access(request, api_user, api_key)

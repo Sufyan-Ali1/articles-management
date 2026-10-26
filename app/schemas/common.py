@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 T = TypeVar("T")
 Role = Literal["admin", "editor", "author"]
-ArticleStatus = Literal["draft", "published", "archived"]
+ArticleStatus = Literal["draft", "published", "archived", "scheduled"]
 RequestStatus = Literal["pending", "accepted", "rejected", "completed"]
 
 

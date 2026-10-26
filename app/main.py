@@ -8,13 +8,25 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as DBPoolTimeout
 from starlette.exceptions import HTTPException
 
-from app.api.v1 import articles, auth, classifications, logs, media, requests, users
+from app.api.v1 import (
+    analytics,
+    articles,
+    auth,
+    classifications,
+    contacts,
+    logs,
+    media,
+    requests,
+    subscriptions,
+    users,
+)
 from app.core.config import Settings, get_settings
 from app.core.errors import APIError
 from app.core.limits import RateLimiter
@@ -26,6 +38,7 @@ from app.integrations.nextjs import Revalidator
 from app.schemas.common import Data, ErrorResponse
 from app.services.media import media_cleanup_worker
 from app.services.requests import SubmissionGuard
+from app.services.scheduling import article_scheduler_worker
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -47,6 +60,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 trust_env=False,
             ) as client:
                 application.state.revalidator = Revalidator(config, client)
+                scheduler_task = None
+                if config.article_scheduler_enabled:
+                    scheduler_task = asyncio.create_task(
+                        article_scheduler_worker(factory, config, application.state.revalidator)
+                    )
                 cleanup_task = None
                 if (
                     config.cloudinary_cloud_name
@@ -57,6 +75,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 try:
                     yield
                 finally:
+                    if scheduler_task is not None:
+                        scheduler_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await scheduler_task
                     if cleanup_task is not None:
                         cleanup_task.cancel()
                         with suppress(asyncio.CancelledError):
@@ -144,11 +166,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         users.router,
         classifications.router,
         articles.router,
+        analytics.router,
         requests.router,
+        subscriptions.router,
+        contacts.router,
         logs.router,
         media.router,
     ):
         application.include_router(router, prefix="/api/v1")
+
+    def secured_openapi() -> dict[str, Any]:
+        if application.openapi_schema:
+            return application.openapi_schema
+        schema = get_openapi(
+            title=application.title, version=application.version, routes=application.routes
+        )
+        for path in schema.get("paths", {}).values():
+            for operation in path.values():
+                if not isinstance(operation, dict):
+                    continue
+                security = operation.get("security", [])
+                if any(
+                    "APIUser" in requirement or "APIKey" in requirement for requirement in security
+                ):
+                    operation["security"] = [{"APIUser": [], "APIKey": []}]
+                    if any("HTTPBearer" in requirement for requirement in security):
+                        operation["security"].append({"HTTPBearer": []})
+        application.openapi_schema = schema
+        return schema
+
+    application.openapi = secured_openapi  # type: ignore[method-assign]
 
     @application.get("/health", tags=["Health"], response_model=Data[dict[str, str]])
     async def health() -> Data[dict[str, str]]:

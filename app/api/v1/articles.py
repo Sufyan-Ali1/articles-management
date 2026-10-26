@@ -1,9 +1,9 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 
-from app.api.dependencies import Actor, Admin, Reviewer, Session
+from app.api.dependencies import Actor, Admin, Reviewer, Session, public_api_access
 from app.core.errors import not_found
 from app.core.middleware import client_ip
 from app.models import Article
@@ -14,6 +14,7 @@ from app.schemas.content import (
     AdminArticleSummary,
     ArticleCreate,
     ArticleResponse,
+    ArticleSchedule,
     ArticleSummary,
     ArticleUpdate,
 )
@@ -24,13 +25,16 @@ from app.services.articles import (
     publish_article,
     update_article,
 )
+from app.services.scheduling import schedule_article
 from app.utils.pagination import page_response
 
 router = APIRouter(tags=["Articles"])
 SORTS = {"title", "created_at", "updated_at", "published_at", "view_count"}
 
 
-@router.get("/articles", response_model=Page[ArticleSummary])
+@router.get(
+    "/articles", dependencies=[Depends(public_api_access)], response_model=Page[ArticleSummary]
+)
 async def public_articles(
     session: Session, params: Annotated[PublicArticleFilters, Query()]
 ) -> Page[ArticleSummary]:
@@ -40,7 +44,11 @@ async def public_articles(
     return page_response([ArticleSummary.model_validate(r) for r in rows], total, params)
 
 
-@router.get("/articles/{slug}", response_model=Data[ArticleResponse])
+@router.get(
+    "/articles/{slug}",
+    dependencies=[Depends(public_api_access)],
+    response_model=Data[ArticleResponse],
+)
 async def article_detail(slug: str, session: Session) -> Data[ArticleResponse]:
     return Data(data=ArticleResponse.model_validate(await public_detail(session, slug)))
 
@@ -107,4 +115,22 @@ async def unpublish(
     row = await publish_article(
         session, actor, id, False, client_ip(request.scope), request.app.state.revalidator
     )
+    return Data(data=AdminArticleResponse.model_validate(row))
+
+
+@router.post("/articles/{id}/schedule", response_model=Data[AdminArticleResponse])
+async def schedule(
+    id: UUID, data: ArticleSchedule, request: Request, session: Session, actor: Reviewer
+) -> Data[AdminArticleResponse]:
+    row = await schedule_article(
+        session, actor, id, data.scheduled_publish_at, client_ip(request.scope)
+    )
+    return Data(data=AdminArticleResponse.model_validate(row))
+
+
+@router.delete("/articles/{id}/schedule", response_model=Data[AdminArticleResponse])
+async def cancel_schedule(
+    id: UUID, request: Request, session: Session, actor: Reviewer
+) -> Data[AdminArticleResponse]:
+    row = await schedule_article(session, actor, id, None, client_ip(request.scope))
     return Data(data=AdminArticleResponse.model_validate(row))
