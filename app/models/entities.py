@@ -85,6 +85,13 @@ article_tags = Table(
 )
 
 
+class Author(Timestamps, Base):
+    __tablename__ = "authors"
+    name: Mapped[str] = mapped_column(String(150))
+    specialization: Mapped[str] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+
+
 class Article(Timestamps, Base):
     __tablename__ = "articles"
     __table_args__ = (
@@ -114,8 +121,11 @@ class Article(Timestamps, Base):
     )
     featured_image: Mapped[str | None] = mapped_column(Text)
     featured_image_alt: Mapped[str | None] = mapped_column(String(300))
-    author_id: Mapped[UUID | None] = mapped_column(
+    created_by_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    author_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("authors.id", ondelete="RESTRICT"), index=True
     )
     status: Mapped[str] = mapped_column(String(30), server_default="draft")
     meta_title: Mapped[str | None] = mapped_column(String(300))
@@ -128,7 +138,7 @@ class Article(Timestamps, Base):
     categories: Mapped[list[Category]] = relationship(secondary=article_categories, lazy="raise")
     tags: Mapped[list[Tag]] = relationship(secondary=article_tags, lazy="raise")
     article_type: Mapped[ArticleType | None] = relationship(lazy="raise")
-    author: Mapped[User | None] = relationship(lazy="raise")
+    author: Mapped[Author | None] = relationship(lazy="raise")
 
 
 class AdminLog(Base):

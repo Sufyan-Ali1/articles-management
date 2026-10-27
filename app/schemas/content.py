@@ -4,8 +4,8 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, Field, field_validator, model_validator
 
+from app.schemas.authors import AuthorResponse
 from app.schemas.common import ArticleStatus, Input, Output
-from app.schemas.users import AuthorResponse
 from app.utils.validation import safe_url, validate_jsonld, validate_slug
 
 
@@ -83,6 +83,7 @@ class ArticleCreate(ArticleFields):
     slug: str | None = Field(default=None, min_length=1, max_length=350)
     content_html: str = Field(min_length=1, max_length=1000000)
     article_type_id: UUID
+    author_id: UUID
     category_ids: list[UUID] = Field(default_factory=list, max_length=100)
     tag_ids: list[UUID] = Field(default_factory=list, max_length=100)
     is_featured: bool = False
@@ -105,6 +106,7 @@ class ArticleUpdate(ArticleFields):
     slug: str | None = Field(default=None, min_length=1, max_length=350)
     content_html: str | None = Field(default=None, min_length=1, max_length=1000000)
     article_type_id: UUID | None = None
+    author_id: UUID | None = None
     category_ids: list[UUID] | None = Field(default=None, max_length=100)
     tag_ids: list[UUID] | None = Field(default=None, max_length=100)
     is_featured: bool | None = None
@@ -117,6 +119,7 @@ class ArticleUpdate(ArticleFields):
             "slug",
             "content_html",
             "article_type_id",
+            "author_id",
             "category_ids",
             "tag_ids",
             "is_featured",
@@ -171,6 +174,7 @@ class ArticleResponse(ArticleSummary):
 
 
 class AdminArticleSummary(ArticleSummary):
+    created_by_id: UUID | None
     author_id: UUID | None
     article_type_id: UUID | None
     status: ArticleStatus
@@ -178,6 +182,7 @@ class AdminArticleSummary(ArticleSummary):
 
 
 class AdminArticleResponse(ArticleResponse):
+    created_by_id: UUID | None
     author_id: UUID | None
     article_type_id: UUID | None
     status: ArticleStatus

@@ -157,7 +157,7 @@ def test_schema_and_mass_assignment() -> None:
     with pytest.raises(ValidationError):
         ArticleUpdate(view_count=99)
     with pytest.raises(ValidationError):
-        ArticleUpdate(category_ids=[uuid4(), uuid4()], author_id=uuid4())
+        ArticleUpdate(category_ids=[uuid4(), uuid4()], created_by_id=uuid4())
     with pytest.raises(ValidationError):
         ArticleUpdate(title=None)
     assert ArticleUpdate(excerpt=None).model_dump(exclude_unset=True) == {"excerpt": None}

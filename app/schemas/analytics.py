@@ -4,8 +4,75 @@ from uuid import UUID
 
 from pydantic import Field, field_validator, model_validator
 
-from app.schemas.common import Input, Output
+from app.schemas.common import Input, Output, Pagination
 from app.utils.validation import plain_text
+
+
+class TrackingLinkFilters(Pagination):
+    article_id: UUID | None = None
+
+
+class UtmParameters(Input):
+    utm_source: str | None = Field(default=None, min_length=1, max_length=100)
+    utm_medium: str | None = Field(default=None, min_length=1, max_length=100)
+    utm_campaign: str | None = Field(default=None, min_length=1, max_length=150)
+    utm_content: str | None = Field(default=None, min_length=1, max_length=150)
+
+    @field_validator("utm_source", "utm_medium")
+    @classmethod
+    def normalize_utm(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = plain_text(value).lower()
+        if not value:
+            raise ValueError("UTM values cannot be empty")
+        return value
+
+    @field_validator("utm_campaign", "utm_content")
+    @classmethod
+    def text_utm(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = plain_text(value)
+        if not value:
+            raise ValueError("UTM values cannot be empty")
+        return value
+
+    @model_validator(mode="after")
+    def utm_requires_source(self) -> "UtmParameters":
+        if not self.utm_source and any((self.utm_medium, self.utm_campaign, self.utm_content)):
+            raise ValueError("utm_source is required with UTM metadata")
+        return self
+
+
+class UtmLinkCreate(Input):
+    article_id: UUID
+    source_id: UUID
+    medium: str = Field(default="social", min_length=1, max_length=100)
+    campaign: str | None = Field(default=None, min_length=1, max_length=150)
+    content: str | None = Field(default=None, min_length=1, max_length=150)
+
+    @model_validator(mode="after")
+    def normalize_metadata(self) -> "UtmLinkCreate":
+        normalized = UtmParameters(
+            utm_source="placeholder",
+            utm_medium=self.medium,
+            utm_campaign=self.campaign,
+            utm_content=self.content,
+        )
+        self.medium = normalized.utm_medium or "social"
+        self.campaign = normalized.utm_campaign
+        self.content = normalized.utm_content
+        return self
+
+
+class UtmLinkResponse(Output):
+    article_slug: str
+    relative_url: str
+    utm_source: str
+    utm_medium: str
+    utm_campaign: str | None
+    utm_content: str | None
 
 
 class TrackingLinkCreate(Input):
@@ -57,12 +124,18 @@ class TrackingDestination(TrackingLinkResponse):
     article_slug: str
 
 
-class ArticleViewCreate(Input):
+class ArticleViewCreate(UtmParameters):
     event_id: UUID
     session_id: UUID
     article_slug: str = Field(min_length=1, max_length=350, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     tracking_link_id: UUID | None = None
     referrer_domain: str | None = Field(default=None, max_length=253)
+
+    @model_validator(mode="after")
+    def one_attribution(self) -> "ArticleViewCreate":
+        if self.tracking_link_id and self.utm_source:
+            raise ValueError("Send UTM attribution or tracking_link_id, not both")
+        return self
 
     @field_validator("referrer_domain")
     @classmethod

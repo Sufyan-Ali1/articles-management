@@ -1,6 +1,57 @@
 # Traffic tracking: plan and implementation
 
-## Flow
+## Article URLs with UTM parameters (preferred)
+
+Share the actual article URL, for example:
+
+`https://askandexplore.com/articles/your-article?utm_source=linkedin&utm_medium=social`
+
+Admins/editors can generate a URL without creating a tracking-link record:
+
+`POST /api/v1/admin/utm-links`
+
+```json
+{
+  "article_id": "<published-article-uuid>",
+  "source_id": "<configured-source-uuid>",
+  "medium": "social",
+  "campaign": "launch",
+  "content": "comment-01"
+}
+```
+
+Returns HTTP 200 with `data.article_slug`, `data.relative_url` and the four
+`utm_*` fields (optional campaign/content are null when omitted). Join
+`relative_url` to the configured public website origin. The backend uses the
+actual website route `/articles/{slug}` and URL-encodes query values. There is
+no code to choose, database insert, or redirect. Only active configured sources
+and published articles can be selected. Existing short-link endpoints remain
+available for compatibility.
+
+### Required dashboard and website integration
+
+The dashboard must replace its short-link form with a call to `/admin/utm-links`
+and copy the website origin plus `relative_url`. Opening article details can
+still list legacy links with `article_id`; this filter is now part of the query
+model alongside pagination, preventing an unexpected-field validation error.
+
+The website must read `utm_source`, `utm_medium`, `utm_campaign`, and `utm_content`
+from the landing URL and include them in its server-to-server
+`POST /api/v1/analytics/article-views` payload. Preserve these values in the signed
+30-minute attribution session for later article navigation; a new explicit UTM
+landing starts a new attributed session. Do not send `tracking_link_id` together
+with UTM attribution. Keep the ingest secret server-only. The current website
+short-link collector must be updated before UTM visits will be attributed.
+
+Explicit UTM source takes precedence over referrer matching. Source and medium
+are normalized to lowercase; campaign and content retain case. Missing medium
+defaults to `social`. Active registered source slugs populate source cards.
+Unknown/inactive UTM sources are preserved in grouped reports and counted as
+unassigned on source cards. Other UTM fields require `utm_source`. Existing
+referrer-only and short-link events retain their behavior. No migration is needed.
+
+## Legacy short-link flow
+
 
 1. An admin/editor creates a tracking link for a published article and a specific
    sharing placement. Metadata is immutable; create a new code for a new placement.

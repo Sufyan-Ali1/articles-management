@@ -12,7 +12,7 @@ from app.core.errors import APIError, forbidden, not_found
 from app.core.rbac import require_roles
 from app.core.security import blocking_limiter
 from app.integrations.nextjs import Revalidator
-from app.models import Article, ArticleType, Category, Tag, User
+from app.models import Article, ArticleType, Author, Category, Tag, User
 from app.repositories.queries import ARTICLE_LOAD, get_article
 from app.schemas.content import ArticleCreate, ArticleUpdate
 from app.services.classifications import CLASSIFICATION_LOCK
@@ -65,7 +65,7 @@ async def validate_published(session: AsyncSession, article: Article) -> None:
             "Publication requires title, article type and author",
         )
     author = await session.scalar(
-        select(User).where(User.id == article.author_id).execution_options(populate_existing=True)
+        select(Author).where(Author.id == article.author_id).execution_options(populate_existing=True)
     )
     if author is None or not author.is_active:
         raise APIError(422, "publication_invalid", "Publication requires an active author")
@@ -79,6 +79,12 @@ async def validate_published(session: AsyncSession, article: Article) -> None:
 async def apply_relationships(
     session: AsyncSession, article: Article, changes: dict[str, Any]
 ) -> None:
+    if "author_id" in changes:
+        author = await session.scalar(
+            select(Author).where(Author.id == changes["author_id"], Author.is_active.is_(True))
+        )
+        if author is None:
+            raise APIError(422, "invalid_author", "Select an active author profile")
     if "category_ids" in changes:
         article.categories = await references(session, Category, changes.pop("category_ids"))
     if "tag_ids" in changes:
@@ -99,7 +105,7 @@ async def create_article(
     async with transaction(session):
         await advisory_lock(session, MEDIA_LOCK)
         await advisory_lock(session, CLASSIFICATION_LOCK)
-        article = Article(author_id=actor.id, status="draft", categories=[], tags=[])
+        article = Article(created_by_id=actor.id, status="draft", categories=[], tags=[])
         await apply_relationships(session, article, changes)
         for key, value in changes.items():
             setattr(article, key, value)
@@ -127,7 +133,7 @@ async def update_article(
         await advisory_lock(session, MEDIA_LOCK)
         article = await get_article(session, identity, lock=True)
         if actor.role == "author":
-            if article.author_id != actor.id:
+            if article.created_by_id != actor.id:
                 raise not_found()
             if article.status != "draft":
                 raise forbidden()

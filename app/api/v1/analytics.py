@@ -16,6 +16,7 @@ from app.schemas.analytics import (
     ArticleViewCreate,
     TrackingDestination,
     TrackingLinkCreate,
+    TrackingLinkFilters,
     TrackingLinkResponse,
     TrackingLinkUpdate,
     TrafficOverview,
@@ -23,9 +24,11 @@ from app.schemas.analytics import (
     TrafficSourceCreate,
     TrafficSourceResponse,
     TrafficSourceUpdate,
+    UtmLinkCreate,
+    UtmLinkResponse,
 )
 from app.schemas.common import Data, Page, Pagination
-from app.services.analytics import create_link, record_view, report, resolve_link
+from app.services.analytics import create_link, create_utm_link, record_view, report, resolve_link
 from app.services.common import audit, transaction
 from app.services.traffic_sources import delete_source, save_source, source_overview
 from app.utils.pagination import page_response
@@ -41,19 +44,25 @@ async def create(
     return Data(data=TrackingLinkResponse.model_validate(row))
 
 
+@router.post("/admin/utm-links", response_model=Data[UtmLinkResponse])
+async def create_utm(
+    data: UtmLinkCreate, session: Session, actor: Reviewer
+) -> Data[UtmLinkResponse]:
+    return Data(data=await create_utm_link(session, actor, data))
+
+
 @router.get("/admin/tracking-links", response_model=Page[TrackingLinkResponse])
 async def listing(
     session: Session,
     actor: Reviewer,
-    params: Annotated[Pagination, Query()],
-    article_id: UUID | None = None,
+    params: Annotated[TrackingLinkFilters, Query()],
 ) -> Page[TrackingLinkResponse]:
     # Codes act as the search field for the generic listing helper.
     from sqlalchemy import select
 
     query = select(TrackingLink)
-    if article_id:
-        query = query.where(TrackingLink.article_id == article_id)
+    if params.article_id:
+        query = query.where(TrackingLink.article_id == params.article_id)
     if params.search:
         escaped = params.search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         query = query.where(TrackingLink.code.ilike(f"%{escaped}%", escape="\\"))

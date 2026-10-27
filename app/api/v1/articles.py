@@ -67,7 +67,7 @@ async def admin_articles(
 @router.get("/admin/articles/{id}", response_model=Data[AdminArticleResponse])
 async def admin_detail(id: UUID, session: Session, actor: Actor) -> Data[AdminArticleResponse]:
     row = await get_article(session, id)
-    if actor.role == "author" and row.author_id != actor.id:
+    if actor.role == "author" and row.created_by_id != actor.id:
         raise not_found()
     return Data(data=AdminArticleResponse.model_validate(row))
 

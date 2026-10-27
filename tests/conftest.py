@@ -17,7 +17,7 @@ from app.core.config import Settings, get_settings
 from app.core.security import create_token, hash_password
 from app.db.session import create_database
 from app.main import create_app
-from app.models import ArticleType, User
+from app.models import ArticleType, Author, User
 from scripts.seed_types import seed
 
 PASSWORD = "integration-test-only-passphrase"
@@ -97,7 +97,7 @@ async def db_app(db_settings: Settings) -> AsyncIterator[FastAPI]:
     async with factory() as session:
         await session.execute(
             text(
-                "TRUNCATE article_view_events, tracking_links, traffic_sources, contact_messages, subscribers, article_requests, admin_logs, article_tags, article_categories, articles, categories, tags, article_types, users CASCADE"
+                "TRUNCATE article_view_events, tracking_links, traffic_sources, contact_messages, subscribers, article_requests, admin_logs, article_tags, article_categories, articles, authors, categories, tags, article_types, users CASCADE"
             )
         )
         await session.commit()
@@ -141,6 +141,10 @@ async def accounts(db_app: FastAPI, db_session: AsyncSession) -> dict[str, Any]:
             "user": user,
             "headers": {"Authorization": "Bearer " + create_token(user.id, db_app.state.settings)},
         }
+    profile = Author(name="Technology Author", specialization="AI and technology", is_active=True)
+    db_session.add(profile)
+    await db_session.flush()
+    result["author_id"] = str(profile.id)
     await seed(db_session)
     await db_session.commit()
     result["type_id"] = str(
@@ -161,6 +165,7 @@ async def draft(db_client: httpx.AsyncClient, accounts: dict[str, Any]) -> dict[
             "title": "Repair a laptop",
             "content_html": "<p>A real repair guide.</p>",
             "article_type_id": accounts["type_id"],
+            "author_id": accounts["author_id"],
             "schema": {
                 "@context": "https://schema.org",
                 "@type": "TechArticle",

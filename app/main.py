@@ -19,6 +19,7 @@ from app.api.v1 import (
     analytics,
     articles,
     auth,
+    authors,
     classifications,
     contacts,
     logs,
@@ -163,6 +164,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     for router in (
         auth.router,
+        authors.router,
         users.router,
         classifications.router,
         articles.router,

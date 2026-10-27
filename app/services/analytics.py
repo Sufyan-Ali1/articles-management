@@ -1,4 +1,5 @@
 from typing import Any
+from urllib.parse import urlencode
 
 from sqlalchemy import String, cast, func, select, true, update
 from sqlalchemy.dialects.postgresql import insert
@@ -16,9 +17,39 @@ from app.schemas.analytics import (
     TrackingDestination,
     TrackingLinkCreate,
     TrackingLinkResponse,
+    UtmLinkCreate,
+    UtmLinkResponse,
+    UtmParameters,
 )
 from app.services.common import advisory_lock, audit, transaction
 from app.services.traffic_sources import SOURCE_LOCK, match_referrer
+
+
+async def create_utm_link(
+    session: AsyncSession, actor: User, data: UtmLinkCreate
+) -> UtmLinkResponse:
+    require_roles(actor, "admin", "editor")
+    source = await session.scalar(
+        select(TrafficSource).where(
+            TrafficSource.id == data.source_id, TrafficSource.is_active.is_(True)
+        )
+    )
+    if source is None:
+        raise APIError(422, "invalid_source", "Select an active configured traffic source")
+    article = await get_record(session, Article, data.article_id)
+    if article.status != "published":
+        raise APIError(409, "invalid_transition", "Tracking URLs require a published article")
+    utm = UtmParameters(
+        utm_source=source.slug,
+        utm_medium=data.medium,
+        utm_campaign=data.campaign,
+        utm_content=data.content,
+    )
+    return UtmLinkResponse(
+        article_slug=article.slug,
+        relative_url=f"/articles/{article.slug}?{urlencode(utm.model_dump(exclude_none=True))}",
+        **utm.model_dump(),
+    )
 
 
 async def create_link(
@@ -100,6 +131,21 @@ async def record_view(session: AsyncSession, data: ArticleViewCreate) -> None:
                 medium=link.medium,
                 campaign=link.campaign,
                 content=link.content,
+            )
+        elif data.utm_source:
+            # Explicit campaign attribution takes precedence over the referring hostname.
+            # Unregistered sources remain visible in grouped reports as unassigned traffic.
+            source = await session.scalar(
+                select(TrafficSource).where(
+                    TrafficSource.slug == data.utm_source, TrafficSource.is_active.is_(True)
+                )
+            )
+            values.update(
+                source_id=source.id if source else None,
+                source=data.utm_source,
+                medium=data.utm_medium or "social",
+                campaign=data.utm_campaign,
+                content=data.utm_content,
             )
         elif data.referrer_domain:
             source = await match_referrer(session, data.referrer_domain)

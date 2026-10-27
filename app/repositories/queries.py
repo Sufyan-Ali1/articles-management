@@ -7,7 +7,7 @@ from sqlalchemy.orm import load_only, selectinload
 
 from app.core.errors import APIError, not_found
 from app.db.base import Base
-from app.models import Article, ArticleType, Category, Tag, User
+from app.models import Article, ArticleType, Category, Tag
 from app.schemas.common import ArticleFilters, Pagination, PublicArticleFilters
 
 M = TypeVar("M", bound=Base)
@@ -15,7 +15,7 @@ ARTICLE_LOAD = (
     selectinload(Article.categories),
     selectinload(Article.tags),
     selectinload(Article.article_type),
-    selectinload(Article.author).load_only(User.id, User.name),
+    selectinload(Article.author),
 )
 
 
@@ -91,6 +91,7 @@ def article_query(
             Article.featured_image,
             Article.featured_image_alt,
             Article.author_id,
+            Article.created_by_id,
             Article.article_type_id,
             Article.status,
             Article.is_featured,
@@ -111,7 +112,7 @@ def article_query(
     elif isinstance(params, ArticleFilters) and params.status:
         query = query.where(Article.status == params.status)
     if user_id is not None:
-        query = query.where(Article.author_id == user_id)
+        query = query.where(Article.created_by_id == user_id)
     if params.category:
         query = query.where(Article.categories.any(Category.slug == params.category))
     if params.tag:

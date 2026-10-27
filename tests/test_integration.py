@@ -342,6 +342,7 @@ async def test_relationships_public_filters_and_rollback(
             "slug": draft["slug"],
             "content_html": "<p>Duplicate</p>",
             "article_type_id": accounts["type_id"],
+            "author_id": accounts["author_id"],
             "tag_ids": [tag["id"]],
         },
     )

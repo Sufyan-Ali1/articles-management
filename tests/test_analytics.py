@@ -181,3 +181,100 @@ async def test_tracking_link_and_report_lifecycle(db_client, db_session, db_app,
 def test_empty_analytics_secret_disables_ingestion(settings):
     config = type(settings)(**{**settings.model_dump(), "analytics_ingest_secret": ""})
     assert config.analytics_ingest_secret is None
+
+
+async def test_article_tracking_list_accepts_dashboard_query(client, application, monkeypatch):
+    from app.api.dependencies import reviewer
+    from app.api.v1 import analytics
+
+    article_id = uuid4()
+    listing = AsyncMock(return_value=([], 0))
+    monkeypatch.setattr(analytics, "list_records", listing)
+    application.dependency_overrides[reviewer] = lambda: SimpleNamespace(role="editor")
+    try:
+        response = await client.get(
+            "/api/v1/admin/tracking-links",
+            params={
+                "article_id": str(article_id),
+                "page": 1,
+                "page_size": 100,
+                "sort": "-created_at",
+            },
+        )
+        assert response.status_code == 200, response.text
+        query = listing.call_args.kwargs["query"].compile(dialect=postgresql.dialect())
+        assert article_id in query.params.values()
+    finally:
+        application.dependency_overrides.clear()
+
+
+async def test_utm_generation_uses_real_article_path_and_encodes_metadata():
+    from urllib.parse import parse_qs, urlsplit
+
+    from app.schemas.analytics import UtmLinkCreate
+    from app.services.analytics import create_utm_link
+
+    session = AsyncMock()
+    session.scalar.side_effect = [
+        SimpleNamespace(slug="linkedin"),
+        SimpleNamespace(slug="example", status="published"),
+    ]
+    result = await create_utm_link(
+        session,
+        SimpleNamespace(role="editor", is_active=True),
+        UtmLinkCreate(article_id=uuid4(), source_id=uuid4(), campaign="launch & learn"),
+    )
+    url = urlsplit(result.relative_url)
+    assert url.path == "/articles/example"
+    assert parse_qs(url.query) == {
+        "utm_source": ["linkedin"],
+        "utm_medium": ["social"],
+        "utm_campaign": ["launch & learn"],
+    }
+    session.add.assert_not_called()
+
+
+@pytest.mark.parametrize("configured", [True, False])
+async def test_utm_view_overrides_referrer_and_preserves_campaign(configured):
+    session = AsyncMock()
+    source_id = uuid4()
+    session.scalar.side_effect = [
+        SimpleNamespace(id=uuid4()),
+        SimpleNamespace(id=source_id) if configured else None,
+        uuid4(),
+    ]
+    await record_view(
+        session,
+        ArticleViewCreate(
+            event_id=uuid4(),
+            session_id=uuid4(),
+            article_slug="example",
+            utm_source=" LinkedIn ",
+            utm_medium="Social",
+            utm_campaign="launch",
+            utm_content="comment-01",
+            referrer_domain="google.com",
+        ),
+    )
+    statement = session.scalar.call_args_list[2].args[0]
+    values = statement.compile(dialect=postgresql.dialect()).params
+    assert values["source"] == "linkedin"
+    assert values["source_id"] == (source_id if configured else None)
+    assert values["medium"] == "social"
+    assert values["campaign"] == "launch"
+    assert values["content"] == "comment-01"
+    session.execute.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"utm_source": " "},
+        {"utm_campaign": "launch"},
+        {"utm_source": "linkedin", "tracking_link_id": str(uuid4())},
+        {"utm_source": "linkedin", "utm_content": "x" * 151},
+    ],
+)
+def test_invalid_utm_attribution_rejected(extra):
+    with pytest.raises(ValidationError):
+        ArticleViewCreate(event_id=uuid4(), session_id=uuid4(), article_slug="example", **extra)
